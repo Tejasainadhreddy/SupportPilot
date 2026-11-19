@@ -52,3 +52,47 @@ class StaticKnowledge:
         return {"answer": f"{sentence} [S1]", "refused": False,
                 "citations": [{"ref": "S1", "title": title, "location": f"section '{title} > {section}'",
                                "doc_id": title.lower().replace(" ", "-")}]}
+
+
+class MCPKnowledgeClient:
+    """Calls KnowledgeMCP's `ask_question` tool over the MCP protocol.
+
+    Production: launches the `knowledgemcp-mcp` stdio server (installed from the KnowledgeMCP repo), which
+    calls the deployed KnowledgeMCP API with this service's API key, so KnowledgeMCP enforces which
+    documents SupportPilot may read.
+    Tests: pass an in-process MCPServer and the client talks to it over an in-memory transport.
+    """
+
+    def __init__(self, target, timeout_s: float = 25.0):
+        self.target = target  # StdioServerParameters | MCPServer
+        self.timeout_s = timeout_s
+
+    @classmethod
+    def from_settings(cls, s) -> MCPKnowledgeClient:
+        import os
+
+        from mcp.client.client import StdioServerParameters
+
+        key = s.kmcp_api_key
+        if s.kmcp_api_key_secret_arn and not key:
+            import boto3
+
+            key = boto3.client("secretsmanager", region_name=s.region).get_secret_value(
+                SecretId=s.kmcp_api_key_secret_arn)["SecretString"]
+        env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "LANG", "PYTHONPATH", "LAMBDA_TASK_ROOT")}
+        env.update(KMCP_API_URL=s.kmcp_api_url, KMCP_API_KEY=key)
+        return cls(StdioServerParameters(command=s.kmcp_command, args=[], env=env))
+
+    def ask(self, question: str) -> dict:
+        import anyio
+        from mcp.client.client import Client
+
+        async def call() -> dict:
+            with anyio.fail_after(self.timeout_s):
+                async with Client(self.target) as client:
+                    result = await client.call_tool("ask_question", {"question": question})
+            if result.is_error:
+                raise ConnectionError(" ".join(getattr(c, "text", "") for c in result.content)[:300])
+            return result.structured_content
+
+        return anyio.run(call)
