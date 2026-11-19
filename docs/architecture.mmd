@@ -1,0 +1,18 @@
+flowchart LR
+  subgraph Clients
+    CUST["Customer chat UI / curl<br/>x-api-key: client"]
+    LEAD["Support lead<br/>x-api-key: approver"]
+  end
+  CUST -- "POST /chat" --> APIGW
+  LEAD -- "GET/POST /approvals" --> APIGW
+  subgraph AWS["AWS (us-west-2)"]
+    APIGW["API Gateway HTTP API<br/>(throttled)"] --> FN["Lambda (container): FastAPI + LangGraph<br/>guard → classify → tools → approve → respond"]
+    FN -- "checkpoint every step" --> CP[("DynamoDB<br/>LangGraph checkpoints (TTL)")]
+    FN -- "orders, refunds, tickets, approvals" --> DATA[("DynamoDB<br/>single-table business data")]
+    FN --> BR["Bedrock Claude<br/>routing + reply wording"]
+    SM[("Secrets Manager<br/>client / approver / KnowledgeMCP keys")] -.-> FN
+    FN -. "logs, EMF metrics, X-Ray" .-> CW["CloudWatch dashboard<br/>+ budget alert"]
+    FARGATE["optional demo: ECS Fargate + ALB<br/>(same image)"] -.-> CP
+    FN -- "MCP (stdio): ask_question" --> KMCP["KnowledgeMCP MCP server<br/>(subprocess in the same Lambda)"]
+  end
+  KMCP -- "HTTPS + API key (team: support)" --> KAPI["KnowledgeMCP API<br/>(Project 1: hybrid RAG on Aurora pgvector)"]
