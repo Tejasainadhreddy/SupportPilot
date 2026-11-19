@@ -122,6 +122,18 @@ class SupportTools:
               ExpressionAttributeValues={":s": decision, ":a": approver, ":n": note, ":t": self.now().isoformat()})
 
     # ---- demo data ------------------------------------------------------------------------------
+    DEMO_ORDERS = ("ORD-1001", "ORD-1002", "ORD-1003", "ORD-1004", "ORD-2001", "ORD-2002", "ORD-2003")
+
+    def reset_demo_data(self) -> int:
+        """Remove demo refunds and approvals, then re-seed (makes evals repeatable). Demo data only."""
+        approvals = _call(self.table.query, KeyConditionExpression=Key("PK").eq("APPROVAL"))["Items"]
+        with self.table.batch_writer() as batch:
+            for oid in self.DEMO_ORDERS:
+                batch.delete_item(Key={"PK": f"ORDER#{oid}", "SK": "REFUND"})
+            for item in approvals:
+                batch.delete_item(Key={"PK": "APPROVAL", "SK": item["SK"]})
+        return self.seed_demo_data()
+
     def seed_demo_data(self) -> int:
         now = self.now()
         orders = [

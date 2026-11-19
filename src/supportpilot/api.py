@@ -100,6 +100,8 @@ def _turn_result(session_id: str, before: dict, values: dict, pending: bool) -> 
         "reply": values.get("reply"),
         "status": "pending_approval" if pending else (values.get("status") or "complete"),
         "intent": values.get("intent"),
+        "reply_kind": values.get("reply_kind"),
+        "policy_code": (values.get("policy") or {}).get("code"),
         "citations": ((values.get("knowledge") or {}).get("citations") or []),
         "actions": (values.get("actions") or [])[before["actions"]:],
         "guardrail_events": (values.get("guardrail_events") or [])[before["guardrail_events"]:],
