@@ -13,7 +13,8 @@ from .tools import SupportTools
 
 
 def build_deps(s: Settings) -> Deps:
-    table = boto3.resource("dynamodb", region_name=s.region).Table(s.data_table)
+    table = boto3.resource("dynamodb", region_name=s.region,
+                           endpoint_url=s.dynamodb_endpoint or None).Table(s.data_table)
     llm = (BedrockSupportLLM(boto3.client("bedrock-runtime", region_name=s.region), s.llm_model_id)
            if s.llm == "bedrock" else RulesLLM())
     knowledge = MCPKnowledgeClient.from_settings(s) if s.knowledge == "mcp" else StaticKnowledge()

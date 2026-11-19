@@ -17,6 +17,7 @@ class Settings:
     # DynamoDB: one table for LangGraph checkpoints, one single-table design for business data
     checkpoint_table: str = field(default_factory=lambda: _env("CHECKPOINT_TABLE", "supportpilot-checkpoints"))
     data_table: str = field(default_factory=lambda: _env("DATA_TABLE", "supportpilot-data"))
+    dynamodb_endpoint: str = field(default_factory=lambda: _env("DYNAMODB_ENDPOINT"))  # DynamoDB Local
     checkpoint_ttl_days: int = field(default_factory=lambda: int(_env("CHECKPOINT_TTL_DAYS", "14")))
 
     # Model: "bedrock" (Claude via Converse) or "rules" (offline, deterministic, for tests and local dev)
@@ -28,7 +29,7 @@ class Settings:
 
     # Knowledge: "mcp" (KnowledgeMCP over the MCP protocol) or "static" (offline canned policy answers)
     knowledge: str = field(default_factory=lambda: _env("KNOWLEDGE", "static"))
-    kmcp_command: str = field(default_factory=lambda: _env("KMCP_COMMAND", "knowledgemcp-mcp"))
+    kmcp_command: str = field(default_factory=lambda: _env("KMCP_COMMAND"))  # default: python -m knowledgemcp...
     kmcp_api_url: str = field(default_factory=lambda: _env("KMCP_API_URL"))
     kmcp_api_key: str = field(default_factory=lambda: _env("KMCP_API_KEY"))
     kmcp_api_key_secret_arn: str = field(default_factory=lambda: _env("KMCP_API_KEY_SECRET_ARN"))
@@ -38,10 +39,11 @@ class Settings:
     refund_window_days: int = field(default_factory=lambda: int(_env("REFUND_WINDOW_DAYS", "30")))
     max_tool_attempts: int = field(default_factory=lambda: int(_env("MAX_TOOL_ATTEMPTS", "3")))
 
-    # API auth: one key for the chat client, one for human approvers
+    # API auth: one key for the chat client, one for human approvers (env locally, Secrets Manager on AWS)
     client_api_key: str = field(default_factory=lambda: _env("CLIENT_API_KEY"))
     approver_api_key: str = field(default_factory=lambda: _env("APPROVER_API_KEY"))
-    api_keys_secret_arn: str = field(default_factory=lambda: _env("API_KEYS_SECRET_ARN"))
+    client_key_secret_arn: str = field(default_factory=lambda: _env("CLIENT_KEY_SECRET_ARN"))
+    approver_key_secret_arn: str = field(default_factory=lambda: _env("APPROVER_KEY_SECRET_ARN"))
 
 
 def get_settings() -> Settings:

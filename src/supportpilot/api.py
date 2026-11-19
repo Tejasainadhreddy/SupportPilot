@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import hmac
-import json
 import uuid
 from functools import lru_cache
 from typing import Literal
@@ -46,12 +45,12 @@ def runtime():
 @lru_cache(maxsize=1)
 def api_keys() -> dict[str, str]:
     s = settings()
-    if s.api_keys_secret_arn:
+    if s.client_key_secret_arn:
         import boto3
 
-        raw = boto3.client("secretsmanager", region_name=s.region).get_secret_value(
-            SecretId=s.api_keys_secret_arn)["SecretString"]
-        return json.loads(raw)
+        sm = boto3.client("secretsmanager", region_name=s.region)
+        return {role: sm.get_secret_value(SecretId=arn)["SecretString"]
+                for role, arn in (("client", s.client_key_secret_arn), ("approver", s.approver_key_secret_arn))}
     return {"client": s.client_api_key, "approver": s.approver_api_key}
 
 

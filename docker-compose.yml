@@ -1,0 +1,25 @@
+# Local development: DynamoDB Local + the API with offline models (no AWS account needed).
+#   docker compose up --build
+#   open http://localhost:8000/docs   (x-api-key: local-client / local-approver)
+services:
+  dynamodb:
+    image: amazon/dynamodb-local:latest
+    ports: ["8001:8000"]
+
+  api:
+    build: .
+    entrypoint: ["sh", "-c"]
+    command: ["python -m supportpilot.cli init && python -m uvicorn supportpilot.api:app --host 0.0.0.0 --port 8000"]
+    working_dir: /var/task
+    environment:
+      DYNAMODB_ENDPOINT: http://dynamodb:8000
+      AWS_REGION: us-west-2
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      LLM: ${LLM:-rules}
+      KNOWLEDGE: ${KNOWLEDGE:-static}
+      CLIENT_API_KEY: local-client
+      APPROVER_API_KEY: local-approver
+      POWERTOOLS_TRACE_DISABLED: "1"
+    ports: ["8000:8000"]
+    depends_on: [dynamodb]
