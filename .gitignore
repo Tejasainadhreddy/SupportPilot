@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+cdk.out/
+infra/cdk.out/
+evals/results/*.json
+!evals/results/.gitkeep
+.DS_Store

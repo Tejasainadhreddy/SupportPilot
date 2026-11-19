@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "supportpilot"
+version = "0.1.0"
+description = "LangGraph customer-support agent with human approval, DynamoDB checkpoints and KnowledgeMCP for cited answers"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Teja Sai Nadh Reddy Tatireddy" }]
+dependencies = [
+    "langgraph>=1.0",
+    "langgraph-checkpoint-aws>=1.3",
+    "boto3>=1.35",
+    "fastapi>=0.115",
+    "mangum>=0.19",
+    "pydantic>=2.7",
+    "aws-lambda-powertools[tracer]>=3.0",
+    "mcp>=2.0",
+    "anyio>=4",
+]
+
+[project.optional-dependencies]
+local = ["uvicorn>=0.30"]
+dev = ["pytest>=8", "moto[dynamodb]>=5.0", "ruff>=0.6", "httpx>=0.27"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "tests"]
+markers = ["integration: needs the knowledgemcp package (real MCP server over the MCP protocol)"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["B008"]  # FastAPI Depends() in defaults is the standard pattern
