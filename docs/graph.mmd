@@ -1,0 +1,40 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	guard_input(guard_input)
+	classify(classify)
+	knowledge(knowledge)
+	order_status(order_status)
+	refund_prepare(refund_prepare)
+	notify_pending(notify_pending)
+	human_approval(human_approval)
+	execute_refund(execute_refund)
+	create_ticket(create_ticket)
+	respond(respond)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> guard_input;
+	classify -.-> create_ticket;
+	classify -.-> knowledge;
+	classify -.-> order_status;
+	classify -.-> refund_prepare;
+	classify -.-> respond;
+	create_ticket --> respond;
+	execute_refund --> respond;
+	guard_input -.-> classify;
+	guard_input -.-> respond;
+	human_approval -.-> execute_refund;
+	human_approval -.-> respond;
+	knowledge --> respond;
+	notify_pending --> human_approval;
+	order_status --> respond;
+	refund_prepare -.-> execute_refund;
+	refund_prepare -.-> notify_pending;
+	refund_prepare -.-> respond;
+	respond --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
