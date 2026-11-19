@@ -43,7 +43,7 @@ _REASONS = [
     (r"\b(late|too slow|took too long|delayed)\b", "delivery was late"),
     (r"\b(not as described|different from|poor quality|bad quality)\b", "item not as described"),
     (r"\b(changed my mind|don'?t need|no longer need|don'?t want)\b", "customer changed their mind"),
-    (r"\b(missing part|missing piece|incomplete)\b", "item was missing parts"),
+    (r"\b(missing parts?|missing pieces?|incomplete)\b", "item was missing parts"),
 ]
 
 
