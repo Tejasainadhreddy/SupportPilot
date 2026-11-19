@@ -10,7 +10,10 @@ import re
 from pathlib import Path
 from typing import Protocol
 
-DOCS = Path(__file__).resolve().parents[2] / "knowledge_docs"
+_HERE = Path(__file__).resolve()
+# repo checkout: <repo>/knowledge_docs ; container image: /var/task/knowledge_docs
+DOCS = next((p / "knowledge_docs" for p in (_HERE.parents[2], _HERE.parents[1]) if (p / "knowledge_docs").is_dir()),
+            _HERE.parents[2] / "knowledge_docs")
 _STOP = set("a an and are as at be by can do does for from how i if in is it of on or the this to we what when "
             "where which who why will with you your my me".split())
 
@@ -79,9 +82,15 @@ class MCPKnowledgeClient:
 
             key = boto3.client("secretsmanager", region_name=s.region).get_secret_value(
                 SecretId=s.kmcp_api_key_secret_arn)["SecretString"]
-        env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "LANG", "PYTHONPATH", "LAMBDA_TASK_ROOT")}
-        env.update(KMCP_API_URL=s.kmcp_api_url, KMCP_API_KEY=key)
-        return cls(StdioServerParameters(command=s.kmcp_command, args=[], env=env))
+        import sys
+
+        # Run the server with this same interpreter and import path (works inside Lambda images too).
+        env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "LANG")}
+        env.update(KMCP_API_URL=s.kmcp_api_url, KMCP_API_KEY=key,
+                   PYTHONPATH=os.pathsep.join(p for p in sys.path if p))
+        if s.kmcp_command:
+            return cls(StdioServerParameters(command=s.kmcp_command, args=[], env=env))
+        return cls(StdioServerParameters(command=sys.executable, args=["-m", "knowledgemcp.mcp_server"], env=env))
 
     def ask(self, question: str) -> dict:
         import anyio
