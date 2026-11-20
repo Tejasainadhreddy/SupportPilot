@@ -57,22 +57,42 @@ class StaticKnowledge:
                                "doc_id": title.lower().replace(" ", "-")}]}
 
 
-class MCPKnowledgeClient:
-    """Calls KnowledgeMCP's `ask_question` tool over the MCP protocol.
+class KnowledgeUnavailable(RuntimeError):
+    """KnowledgeMCP is waking up or too slow right now. Not retried: the agent replies and moves on."""
 
-    Production: launches the `knowledgemcp-mcp` stdio server (installed from the KnowledgeMCP repo), which
-    calls the deployed KnowledgeMCP API with this service's API key, so KnowledgeMCP enforces which
-    documents SupportPilot may read.
-    Tests: pass an in-process MCPServer and the client talks to it over an in-memory transport.
+
+class MCPKnowledgeClient:
+    """Calls KnowledgeMCP's `ask_question` tool over the MCP protocol, keeping ONE connection open.
+
+    Production: launches the KnowledgeMCP MCP server once per Lambda container (stdio subprocess), which
+    calls the deployed KnowledgeMCP API with SupportPilot's own key, so KnowledgeMCP still decides which
+    documents SupportPilot may read. Later questions reuse that connection instead of paying ~1 s to start
+    a new process each time.
+
+    Deadlines: each call is capped at `timeout_s` and the subprocess is told to stop waiting for a sleeping
+    database after `KMCP_WAIT_BUDGET_S`, so a cold KnowledgeMCP can never push this Lambda past its limit.
+
+    How the connection is kept: MCP clients are async, and their context must be entered and exited by the
+    same task. A single worker task on a background event loop owns the connection; `ask()` (sync, called
+    from graph nodes) hands it questions through a queue and waits for the answer.
     """
 
-    def __init__(self, target, timeout_s: float = 25.0):
-        self.target = target  # StdioServerParameters | MCPServer
+    def __init__(self, target, timeout_s: float = 12.0, warmup_url: str | None = None,
+                 api_key: str | None = None, client_factory=None):
+        self.target = target  # StdioServerParameters | MCPServer (in-memory, for tests)
         self.timeout_s = timeout_s
+        self.warmup_url = warmup_url
+        self.api_key = api_key
+        self.client_factory = client_factory
+        self.connects = 0
+        self._loop = None
+        self._queue = None
+        self._ready = None
 
     @classmethod
     def from_settings(cls, s) -> MCPKnowledgeClient:
         import os
+        import sys
 
         from mcp.client.client import StdioServerParameters
 
@@ -82,26 +102,90 @@ class MCPKnowledgeClient:
 
             key = boto3.client("secretsmanager", region_name=s.region).get_secret_value(
                 SecretId=s.kmcp_api_key_secret_arn)["SecretString"]
-        import sys
-
         # Run the server with this same interpreter and import path (works inside Lambda images too).
         env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "LANG")}
-        env.update(KMCP_API_URL=s.kmcp_api_url, KMCP_API_KEY=key,
+        env.update(KMCP_API_URL=s.kmcp_api_url, KMCP_API_KEY=key, KMCP_WAIT_BUDGET_S=str(s.kmcp_wait_budget_s),
                    PYTHONPATH=os.pathsep.join(p for p in sys.path if p))
-        if s.kmcp_command:
-            return cls(StdioServerParameters(command=s.kmcp_command, args=[], env=env))
-        return cls(StdioServerParameters(command=sys.executable, args=["-m", "knowledgemcp.mcp_server"], env=env))
+        params = (StdioServerParameters(command=s.kmcp_command, args=[], env=env) if s.kmcp_command else
+                  StdioServerParameters(command=sys.executable, args=["-m", "knowledgemcp.mcp_server"], env=env))
+        return cls(params, timeout_s=s.kmcp_call_timeout_s, api_key=key,
+                   warmup_url=s.kmcp_api_url.rstrip("/") + "/warmup" if s.kmcp_api_url else None)
 
-    def ask(self, question: str) -> dict:
+    # ---- background worker -------------------------------------------------------------------------
+    def _start(self) -> None:
+        import asyncio
+        import threading
+
+        if self._loop is not None:
+            return
+        self._ready = threading.Event()
+        self._loop = asyncio.new_event_loop()
+        threading.Thread(target=self._loop.run_forever, daemon=True, name="mcp-knowledge").start()
+        asyncio.run_coroutine_threadsafe(self._worker(), self._loop)
+        self._ready.wait(5)
+
+    async def _worker(self) -> None:
+        import asyncio
+
         import anyio
-        from mcp.client.client import Client
 
-        async def call() -> dict:
-            with anyio.fail_after(self.timeout_s):
-                async with Client(self.target) as client:
-                    result = await client.call_tool("ask_question", {"question": question})
-            if result.is_error:
-                raise ConnectionError(" ".join(getattr(c, "text", "") for c in result.content)[:300])
-            return result.structured_content
+        if self.client_factory is None:
+            from mcp.client.client import Client
 
-        return anyio.run(call)
+            self.client_factory = Client
+        self._queue = asyncio.Queue()
+        self._ready.set()
+        pending = None
+        while True:  # (re)connect loop
+            try:
+                async with self.client_factory(self.target) as client:
+                    self.connects += 1
+                    while True:
+                        question, future = pending or await self._queue.get()
+                        pending = None
+                        try:
+                            with anyio.fail_after(self.timeout_s):
+                                result = await client.call_tool("ask_question", {"question": question})
+                        except TimeoutError:
+                            future.set_exception(KnowledgeUnavailable("knowledge call timed out"))
+                            continue
+                        except Exception as exc:  # broken connection: fail this call, reconnect for the next
+                            future.set_exception(ConnectionError(f"MCP connection failed: {exc}"))
+                            raise
+                        future.set_result(result)
+            except Exception:
+                await asyncio.sleep(0.2)
+
+    # ---- public API ----------------------------------------------------------------------------------
+    def ask(self, question: str) -> dict:
+        import concurrent.futures
+
+        self._start()
+        future: concurrent.futures.Future = concurrent.futures.Future()
+        self._loop.call_soon_threadsafe(self._queue.put_nowait, (question, future))
+        try:
+            result = future.result(timeout=self.timeout_s + 3)
+        except concurrent.futures.TimeoutError as exc:
+            raise KnowledgeUnavailable("knowledge call timed out") from exc
+        if result.is_error:
+            text = " ".join(getattr(c, "text", "") for c in result.content)[:300]
+            if "warming_up" in text:
+                raise KnowledgeUnavailable(text)
+            raise ConnectionError(text)
+        return result.structured_content
+
+    def warmup(self) -> None:
+        """Fire-and-forget: ask KnowledgeMCP to start waking its database before the customer needs it."""
+        if not self.warmup_url:
+            return
+        import threading
+
+        def go():
+            try:
+                import httpx
+
+                httpx.post(self.warmup_url, headers={"x-api-key": self.api_key or ""}, timeout=3.0)
+            except Exception:
+                pass
+
+        threading.Thread(target=go, daemon=True).start()

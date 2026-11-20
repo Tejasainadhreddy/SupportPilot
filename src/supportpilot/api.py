@@ -132,9 +132,11 @@ def health():
 
 @app.post("/chat")
 def chat(req: ChatRequest, _: str = Depends(_require("client"))):
-    graph, _deps = runtime()
+    graph, deps = runtime()
     session_id = req.session_id or uuid.uuid4().hex
     snap = graph.get_state(_config(session_id))
+    if not snap.values and hasattr(deps.knowledge, "warmup"):
+        deps.knowledge.warmup()  # new conversation: start waking KnowledgeMCP's database in the background
     if snap.values and snap.values.get("customer_id") != req.customer_id:
         raise HTTPException(status_code=403, detail="This session belongs to another customer")
     if snap.interrupts:

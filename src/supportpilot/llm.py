@@ -91,6 +91,8 @@ TEMPLATES = {
     "blocked": lambda f: "I can't help with that request. I can answer policy questions, check orders, start "
                          "refunds, or create a ticket.",
     "knowledge_answer": lambda f: f"{f['answer']}{_citations(f)}",
+    "knowledge_unavailable": lambda f: "Our help library is starting up after being idle. Please ask again in about "
+                                       "10 seconds, or I can create a ticket for a human agent.",
     "knowledge_not_found": lambda f: "I couldn't find that in our help documents. I can create a ticket so an agent "
                                      "can answer you.",
     "order_status": lambda f: (f"Order {f['order_id']} ({f['items']}) is {f['status']}"
@@ -163,7 +165,8 @@ class BedrockSupportLLM:
         return route, total
 
     def write_reply(self, kind: str, facts: dict, message: str) -> tuple[str, Usage]:
-        if kind in ("ask_missing_fields", "blocked", "refund_issued", "refund_pending_approval"):
+        if kind in ("ask_missing_fields", "blocked", "refund_issued", "refund_pending_approval",
+                    "knowledge_unavailable"):
             # Exact wording matters here (amounts, ids); templates are safer and free.
             return TEMPLATES[kind](facts), Usage()
         draft = TEMPLATES[kind](facts)

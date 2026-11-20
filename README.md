@@ -14,18 +14,18 @@ them, and every step is checkpointed in DynamoDB, so a conversation survives cra
 ## Status (November 2026): code complete, not yet deployed
 
 **Works and is tested**
-- Graph routing, refund policy, human approval (interrupt and resume), DynamoDB checkpoints, crash-and-resume, API and guardrails: 33 tests plus 6 CDK synth tests, run in CI with a Docker build.
+- Graph routing, refund policy, human approval (interrupt and resume), DynamoDB checkpoints, crash-and-resume, API and guardrails: 40 tests plus 6 CDK synth tests, run in CI with a Docker build.
 - Knowledge answers through the real KnowledgeMCP MCP server (integration test), and a local end-to-end run through the full MCP path (the preview below).
 - 30-conversation evaluation: 100% policy compliance (no wrong refunds, injections blocked, no card numbers stored).
 
 **Not proven yet**
 - `cdk deploy` has never been run, and the Fargate demo mode has never been deployed.
 - Claude routing on Bedrock is only tested against recorded responses; DynamoDB only against moto (a local mock).
-- Starting the KnowledgeMCP MCP server as a subprocess inside Lambda has not been tried on AWS.
+- Starting the KnowledgeMCP MCP server as a subprocess inside Lambda has not been tried on AWS. Locally, one long-lived connection answered the first question in 842 ms (subprocess start) and later ones in about 9 ms; Lambda numbers are unmeasured.
 
 **Known issues**
 - The offline keyword router misroutes some questions: 2 of the 30 evaluation conversations fail ("Are digital gift cards refundable?" gets a generic reply; "What hours are human support agents available?" opens a ticket). The preview's first question is phrased the way the offline router understands ("What is the policy on digital gift cards?").
-- The first knowledge question after idle will likely time out: each question starts a new MCP subprocess (about 1 s), and KnowledgeMCP may be waiting for Aurora to resume, all inside a 29 s Lambda/API Gateway limit.
+- When KnowledgeMCP's database is asleep, the first policy question in a conversation may get "our help library is starting up, ask again in about 10 seconds" instead of an answer. Mitigations: a new conversation sends a warm-up call to KnowledgeMCP, each knowledge call is capped at 12 s, and the MCP connection is reused instead of restarted per question. This keeps the agent inside its 29 s limit but does not make the first answer instant.
 - `customer_id` comes from the request body, so there is no real customer authentication: anyone with the client key can act as any customer.
 - Two approvers deciding the same refund at the same moment is untested.
 
@@ -41,6 +41,7 @@ them, and every step is checkpointed in DynamoDB, so a conversation survives cra
 | **Human-in-the-loop** | Refunds above $100 call LangGraph `interrupt()`. The customer is told it's under review; a support lead approves or rejects through `/approvals`; the run resumes from the exact checkpoint. |
 | **Checkpoints and crash recovery** | `DynamoDBSaver` stores state after every node (with TTL). If a dependency keeps failing after retries, the API returns 503 and `/sessions/{id}/resume` continues from the failed node without re-running earlier ones. |
 | **Guardrails** | Prompt-injection detection (including "auto-approve"/"bypass the limit"), card-number and SSN redaction before anything is stored, refund rules decided by code (never by the model), required fields extracted by code, and an output check that blocks replies claiming a refund that didn't happen. |
+| **Deadlines** | One long-lived MCP connection per container, a 12 s cap per knowledge call, a warm-up call to KnowledgeMCP when a conversation starts, and a polite "try again shortly" reply if KnowledgeMCP is still waking up, so a turn never exceeds Lambda's limit. |
 | **Model** | Claude on Bedrock (Converse API) for routing and reply wording; money-related replies use exact templates. Invalid model JSON is retried once, then falls back to a deterministic router. |
 | **Evaluation** | 30 scripted conversations scored for resolution, tool-use correctness, policy compliance, cost per conversation and turn latency. CI requires 100% policy compliance. |
 | **Observability** | Structured logs, CloudWatch EMF metrics (turns, refunds, approvals, per-node latency, cost), X-Ray, and a CloudWatch dashboard. |
@@ -99,7 +100,7 @@ python -m supportpilot.cli init
 python -m supportpilot.cli chat --customer C-100       # try: "Refund ORD-1002, the keyboard is defective"
 python -m supportpilot.cli approvals
 python -m supportpilot.cli approve <session_id>
-pytest -q                                              # 33 tests (moto for AWS)
+pytest -q                                              # 40 tests (moto for AWS)
 ```
 
 Demo customers: `C-100` (orders ORD-1001…1004) and `C-200` (ORD-2001…2003), covering delivered, shipped,

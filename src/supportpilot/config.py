@@ -33,6 +33,10 @@ class Settings:
     kmcp_api_url: str = field(default_factory=lambda: _env("KMCP_API_URL"))
     kmcp_api_key: str = field(default_factory=lambda: _env("KMCP_API_KEY"))
     kmcp_api_key_secret_arn: str = field(default_factory=lambda: _env("KMCP_API_KEY_SECRET_ARN"))
+    # Deadlines (Lambda + API Gateway stop at ~29 s): cap each knowledge call, and tell KnowledgeMCP's
+    # MCP server to stop waiting for a sleeping database early so we can answer "try again shortly".
+    kmcp_call_timeout_s: float = field(default_factory=lambda: float(_env("KMCP_CALL_TIMEOUT_S", "12")))
+    kmcp_wait_budget_s: float = field(default_factory=lambda: float(_env("KMCP_WAIT_BUDGET_S", "6")))
 
     # Business policy (must match knowledge_docs/support/refund-policy.md)
     auto_refund_limit_usd: float = field(default_factory=lambda: float(_env("AUTO_REFUND_LIMIT_USD", "100")))

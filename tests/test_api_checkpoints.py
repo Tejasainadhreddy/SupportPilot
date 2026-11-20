@@ -123,3 +123,11 @@ def test_knowledge_over_real_mcp_protocol(deps):
     assert out["intent"] == "policy_question" and "5 to 7 business days" in out["reply"]
     assert out["knowledge"]["citations"][0]["title"] == "Refund Policy"
     assert NOW.year == 2026
+
+
+def test_new_session_warms_up_knowledge_once(client, deps):
+    warmups = []
+    deps.knowledge.warmup = lambda: warmups.append(1)
+    sid = client.post("/chat", headers=CLIENT, json={"customer_id": "C-100", "message": "hello"}).json()["session_id"]
+    client.post("/chat", headers=CLIENT, json={"customer_id": "C-100", "session_id": sid, "message": "thanks"})
+    assert warmups == [1]
