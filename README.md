@@ -11,6 +11,24 @@ It answers policy questions with citations through [KnowledgeMCP](https://github
 over MCP, looks up orders, issues refunds and creates tickets. Refunds above a limit pause until a human approves
 them, and every step is checkpointed in DynamoDB, so a conversation survives crashes and can resume days later.
 
+## Status (November 2026): code complete, not yet deployed
+
+**Works and is tested**
+- Graph routing, refund policy, human approval (interrupt and resume), DynamoDB checkpoints, crash-and-resume, API and guardrails: 33 tests plus 6 CDK synth tests, run in CI with a Docker build.
+- Knowledge answers through the real KnowledgeMCP MCP server (integration test), and a local end-to-end run through the full MCP path (the preview below).
+- 30-conversation evaluation: 100% policy compliance (no wrong refunds, injections blocked, no card numbers stored).
+
+**Not proven yet**
+- `cdk deploy` has never been run, and the Fargate demo mode has never been deployed.
+- Claude routing on Bedrock is only tested against recorded responses; DynamoDB only against moto (a local mock).
+- Starting the KnowledgeMCP MCP server as a subprocess inside Lambda has not been tried on AWS.
+
+**Known issues**
+- The offline keyword router misroutes some questions: 2 of the 30 evaluation conversations fail ("Are digital gift cards refundable?" gets a generic reply; "What hours are human support agents available?" opens a ticket). The preview's first question is phrased the way the offline router understands ("What is the policy on digital gift cards?").
+- The first knowledge question after idle will likely time out: each question starts a new MCP subprocess (about 1 s), and KnowledgeMCP may be waiting for Aurora to resume, all inside a 29 s Lambda/API Gateway limit.
+- `customer_id` comes from the request body, so there is no real customer authentication: anyone with the client key can act as any customer.
+- Two approvers deciding the same refund at the same moment is untested.
+
 ![SupportPilot preview](docs/preview.png)
 
 ## What it does
