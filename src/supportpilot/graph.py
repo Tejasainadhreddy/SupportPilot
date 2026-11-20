@@ -29,7 +29,7 @@ from langgraph.types import RetryPolicy, interrupt
 
 from .config import Settings
 from .guardrails import GuardrailViolation, check_message, check_reply, refund_policy
-from .knowledge import KnowledgeClient
+from .knowledge import KnowledgeClient, KnowledgeUnavailable
 from .llm import SupportLLM, Usage, rule_reason
 from .observability import MetricUnit, add_metric
 from .state import TURN_RESET, SupportState
@@ -111,6 +111,10 @@ def build_graph(deps: Deps, checkpointer=None):
     def knowledge(state, config):
         try:
             result = deps.knowledge.ask(state["message"])
+        except KnowledgeUnavailable as exc:  # waking up / too slow: answer now instead of burning the deadline
+            add_metric("KnowledgeUnavailable", 1)
+            return {"actions": [action("knowledge.ask_question", False, error=str(exc)[:120])],
+                    **reply("knowledge_unavailable")}
         except (TimeoutError, ConnectionError, OSError) as exc:
             raise TransientToolError(str(exc)) from exc
         ok = not result.get("refused")
